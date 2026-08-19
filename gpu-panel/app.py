@@ -1,15 +1,14 @@
 """
-Super Sistema — GPU Status Panel
-Веб-панель для мониторинга Tesla P100 и управления GPU в Ollama.
-Работает на порту 8765.
+Super Sistema — GPU Panel (Tesla P100)
+Одна кнопка → всё запускается само.
+Порт: 8765
 """
 
 import asyncio
 import json
-import subprocess
 import os
+import subprocess
 import time
-import re
 from datetime import datetime
 from typing import AsyncGenerator
 
@@ -18,181 +17,191 @@ from fastapi import FastAPI, Request
 from fastapi.responses import HTMLResponse, JSONResponse, StreamingResponse
 from fastapi.templating import Jinja2Templates
 
-app = FastAPI(title="Super Sistema — GPU Panel")
+app = FastAPI(title="Super Sistema GPU Panel")
 templates = Jinja2Templates(directory="templates")
 
-OLLAMA_URL = os.getenv("OLLAMA_URL", "http://ollama:11434")
-TRIGGER_FILE = "/shared/gpu-setup-trigger"  # Флаг для host-скрипта
+OLLAMA_URL    = os.getenv("OLLAMA_URL", "http://ollama:11434")
+TRIGGER_FILE  = "/shared/gpu-setup-trigger"
+PROGRESS_FILE = "/shared/progress.log"
+STATUS_FILE   = "/app-data/.gpu-status"
 
+
+# ─── Утилиты ─────────────────────────────────────────────────────────────────
 
 def run_cmd(cmd: list[str], timeout: int = 5) -> tuple[bool, str]:
-    """Запустить команду и вернуть (успех, вывод)."""
     try:
-        result = subprocess.run(
-            cmd,
-            capture_output=True,
-            text=True,
-            timeout=timeout,
-        )
-        return result.returncode == 0, (result.stdout + result.stderr).strip()
+        r = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
+        return r.returncode == 0, (r.stdout + r.stderr).strip()
     except (subprocess.TimeoutExpired, FileNotFoundError) as e:
         return False, str(e)
 
 
-def get_nvidia_smi_data() -> dict:
-    """Получить данные о GPU через nvidia-smi."""
+def get_gpu_info() -> dict:
     ok, raw = run_cmd([
         "nvidia-smi",
         "--query-gpu=name,memory.total,memory.used,memory.free,"
         "utilization.gpu,temperature.gpu,power.draw,driver_version",
-        "--format=csv,noheader,nounits"
+        "--format=csv,noheader,nounits",
     ])
     if not ok:
-        return {"available": False, "error": raw or "nvidia-smi not found"}
+        return {"available": False, "error": "nvidia-smi не найден или GPU не подключена"}
 
     gpus = []
     for line in raw.strip().split("\n"):
-        parts = [p.strip() for p in line.split(",")]
-        if len(parts) >= 8:
-            mem_total = int(parts[1]) if parts[1].isdigit() else 0
-            mem_used  = int(parts[2]) if parts[2].isdigit() else 0
-            gpus.append({
-                "name":          parts[0],
-                "mem_total_mb":  mem_total,
-                "mem_used_mb":   mem_used,
-                "mem_free_mb":   int(parts[3]) if parts[3].isdigit() else 0,
-                "mem_pct":       round(mem_used / mem_total * 100, 1) if mem_total > 0 else 0,
-                "utilization":   parts[4],
-                "temperature":   parts[5],
-                "power_draw":    parts[6],
-                "driver":        parts[7],
-            })
-
-    return {"available": True, "gpus": gpus, "count": len(gpus)}
-
-
-def get_gpu_processes() -> list[dict]:
-    """Получить процессы использующие GPU."""
-    ok, raw = run_cmd([
-        "nvidia-smi",
-        "--query-compute-apps=pid,name,used_memory",
-        "--format=csv,noheader,nounits"
-    ])
-    if not ok or not raw.strip():
-        return []
-
-    procs = []
-    for line in raw.strip().split("\n"):
-        parts = [p.strip() for p in line.split(",")]
-        if len(parts) >= 3:
-            procs.append({"pid": parts[0], "name": parts[1], "memory_mb": parts[2]})
-    return procs
+        p = [x.strip() for x in line.split(",")]
+        if len(p) < 8:
+            continue
+        mem_total = int(p[1]) if p[1].isdigit() else 0
+        mem_used  = int(p[2]) if p[2].isdigit() else 0
+        gpus.append({
+            "name":         p[0],
+            "mem_total_mb": mem_total,
+            "mem_used_mb":  mem_used,
+            "mem_free_mb":  int(p[3]) if p[3].isdigit() else 0,
+            "mem_pct":      round(mem_used / mem_total * 100, 1) if mem_total else 0,
+            "utilization":  p[4],
+            "temperature":  p[5],
+            "power_draw":   p[6],
+            "driver":       p[7],
+        })
+    return {"available": True, "gpus": gpus}
 
 
-async def get_ollama_status() -> dict:
-    """Проверить статус Ollama и использование GPU."""
-    try:
-        async with httpx.AsyncClient(timeout=3.0) as client:
-            resp = await client.get(f"{OLLAMA_URL}/api/tags")
-            if resp.status_code == 200:
-                data = resp.json()
-                models = [m["name"] for m in data.get("models", [])]
-                return {"running": True, "models": models, "model_count": len(models)}
-    except Exception:
-        pass
-    return {"running": False, "models": [], "model_count": 0}
-
-
-def get_pcie_devices() -> list[str]:
-    """Список NVIDIA устройств через lspci."""
+def get_pcie_nvidia() -> list[str]:
     ok, raw = run_cmd(["lspci"])
     if not ok:
         return []
-    return [line for line in raw.split("\n") if "nvidia" in line.lower()]
+    return [l for l in raw.splitlines() if "nvidia" in l.lower() or "tesla" in l.lower()]
 
+
+async def get_ollama_info() -> dict:
+    try:
+        async with httpx.AsyncClient(timeout=3.0) as c:
+            r = await c.get(f"{OLLAMA_URL}/api/tags")
+            if r.status_code == 200:
+                models = [m["name"] for m in r.json().get("models", [])]
+                return {"running": True, "models": models}
+    except Exception:
+        pass
+    return {"running": False, "models": []}
+
+
+def setup_is_running() -> bool:
+    """Проверить — идёт ли установка прямо сейчас."""
+    return os.path.exists(TRIGGER_FILE)
+
+
+def read_progress_lines(since_line: int = 0) -> list[dict]:
+    """Прочитать строки прогресса начиная с since_line."""
+    if not os.path.exists(PROGRESS_FILE):
+        return []
+    try:
+        with open(PROGRESS_FILE) as f:
+            lines = f.readlines()
+        result = []
+        for line in lines[since_line:]:
+            line = line.strip()
+            if not line:
+                continue
+            parts = line.split("|", 2)
+            if len(parts) == 3:
+                result.append({"level": parts[0], "time": parts[1], "msg": parts[2]})
+            else:
+                result.append({"level": "INFO", "time": "", "msg": line})
+        return result
+    except Exception:
+        return []
+
+
+# ─── HTTP endpoints ──────────────────────────────────────────────────────────
 
 @app.get("/", response_class=HTMLResponse)
-async def dashboard(request: Request):
-    """Главная страница — дашборд GPU."""
+async def root(request: Request):
     return templates.TemplateResponse(request=request, name="index.html")
 
 
 @app.get("/api/status")
 async def api_status():
-    """JSON статус: GPU, Ollama, PCIe устройства."""
-    gpu_data   = get_nvidia_smi_data()
-    ollama     = await get_ollama_status()
-    processes  = get_gpu_processes()
-    pcie       = get_pcie_devices()
-    trigger_pending = os.path.exists(TRIGGER_FILE)
-
+    gpu      = get_gpu_info()
+    ollama   = await get_ollama_info()
+    pcie     = get_pcie_nvidia()
+    running  = setup_is_running()
     return JSONResponse({
-        "timestamp":       datetime.now().isoformat(),
-        "gpu":             gpu_data,
-        "ollama":          ollama,
-        "gpu_processes":   processes,
-        "pcie_devices":    pcie,
-        "trigger_pending": trigger_pending,
+        "ts":      datetime.now().isoformat(),
+        "gpu":     gpu,
+        "ollama":  ollama,
+        "pcie":    pcie,
+        "running": running,
     })
 
 
-@app.get("/api/smi-full")
-async def api_smi_full():
-    """Полный вывод nvidia-smi."""
-    ok, raw = run_cmd(["nvidia-smi"], timeout=10)
-    return JSONResponse({"ok": ok, "output": raw})
-
-
-@app.post("/api/trigger-setup")
-async def trigger_setup():
-    """
-    Создать файл-триггер для host-скрипта watch-gpu.sh.
-    Host-скрипт отслеживает этот файл и запускает setup-tesla-p100.sh.
-    """
+@app.post("/api/activate")
+async def api_activate():
+    """Нажатие кнопки ВКЛЮЧИТЬ P100."""
     try:
         os.makedirs(os.path.dirname(TRIGGER_FILE), exist_ok=True)
+        # Очистить старый лог
+        with open(PROGRESS_FILE, "w") as f:
+            f.write(f"INFO|{datetime.now().strftime('%H:%M:%S')}|Запрос на активацию Tesla P100 отправлен\n")
+        # Создать триггер для watch-gpu.sh
         with open(TRIGGER_FILE, "w") as f:
             f.write(datetime.now().isoformat())
-        return JSONResponse({
-            "ok": True,
-            "message": "Запрос на активацию GPU отправлен. "
-                       "watch-gpu.sh запустит setup-tesla-p100.sh на хосте."
-        })
+        return JSONResponse({"ok": True})
     except Exception as e:
-        return JSONResponse({"ok": False, "message": str(e)}, status_code=500)
+        return JSONResponse({"ok": False, "error": str(e)}, status_code=500)
 
 
-@app.get("/stream")
-async def sse_stream():
-    """
-    Server-Sent Events — обновления статуса в реальном времени.
-    Используется для автообновления дашборда каждые 3 сек.
-    """
-    async def event_generator() -> AsyncGenerator[str, None]:
+@app.get("/api/progress")
+async def api_progress(since: int = 0):
+    """JSON с новыми строками прогресса."""
+    lines = read_progress_lines(since)
+    total = len(read_progress_lines(0)) + since
+    done  = any(l["level"] == "DONE" for l in read_progress_lines(0))
+    return JSONResponse({"lines": lines, "total": total, "done": done})
+
+
+@app.get("/stream/gpu")
+async def stream_gpu():
+    """SSE поток с состоянием GPU (каждые 3 сек)."""
+    async def gen() -> AsyncGenerator[str, None]:
         while True:
-            gpu_data  = get_nvidia_smi_data()
-            ollama    = await get_ollama_status()
-            processes = get_gpu_processes()
-
-            payload = json.dumps({
-                "ts":        datetime.now().strftime("%H:%M:%S"),
-                "gpu":       gpu_data,
-                "ollama":    ollama,
-                "processes": processes,
+            gpu    = get_gpu_info()
+            ollama = await get_ollama_info()
+            data   = json.dumps({
+                "ts":     datetime.now().strftime("%H:%M:%S"),
+                "gpu":    gpu,
+                "ollama": ollama,
+                "pcie":   get_pcie_nvidia(),
             }, ensure_ascii=False)
-
-            yield f"data: {payload}\n\n"
+            yield f"data: {data}\n\n"
             await asyncio.sleep(3)
 
-    return StreamingResponse(
-        event_generator(),
-        media_type="text/event-stream",
-        headers={
-            "Cache-Control":               "no-cache",
-            "X-Accel-Buffering":           "no",
-            "Access-Control-Allow-Origin": "*",
-        },
-    )
+    return StreamingResponse(gen(), media_type="text/event-stream",
+                              headers={"Cache-Control": "no-cache",
+                                       "X-Accel-Buffering": "no"})
+
+
+@app.get("/stream/progress")
+async def stream_progress():
+    """SSE поток прогресса установки (читает progress.log)."""
+    async def gen() -> AsyncGenerator[str, None]:
+        sent = 0
+        while True:
+            lines = read_progress_lines(sent)
+            if lines:
+                sent += len(lines)
+                data = json.dumps({"lines": lines, "sent": sent}, ensure_ascii=False)
+                yield f"data: {data}\n\n"
+            # Остановить стрим если установка завершена
+            all_lines = read_progress_lines(0)
+            if any(l["level"] == "DONE" for l in all_lines):
+                yield "data: {\"done\": true}\n\n"
+                return
+            await asyncio.sleep(1)
+
+    return StreamingResponse(gen(), media_type="text/event-stream",
+                              headers={"Cache-Control": "no-cache",
+                                       "X-Accel-Buffering": "no"})
 
 
 if __name__ == "__main__":
