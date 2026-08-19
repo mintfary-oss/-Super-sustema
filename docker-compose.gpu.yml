@@ -1,21 +1,20 @@
-# Super Sistema — Docker Compose (NVIDIA GPU вариант)
+# Super Sistema — Docker Compose (NVIDIA GPU вариант + Tesla P100 Panel)
 # Требует: NVIDIA GPU + nvidia-container-toolkit
 #
-# Запуск с GPU:   docker compose -f docker-compose.gpu.yml up -d
-# Остановка:      docker compose -f docker-compose.gpu.yml down
+# Запуск:    docker compose -f docker-compose.gpu.yml up -d
+# Остановка: docker compose -f docker-compose.gpu.yml down
+# Логи:      docker compose -f docker-compose.gpu.yml logs -f
 #
-# Установка nvidia-container-toolkit (Ubuntu):
-#   curl -fsSL https://nvidia.github.io/libnvidia-container/gpgkey | sudo gpg --dearmor -o /usr/share/keyrings/nvidia-container-toolkit-keyring.gpg
-#   curl -s -L https://nvidia.github.io/libnvidia-container/stable/deb/nvidia-container-toolkit.list | \
-#     sed 's#deb https://#deb [signed-by=/usr/share/keyrings/nvidia-container-toolkit-keyring.gpg] https://#g' | \
-#     sudo tee /etc/apt/sources.list.d/nvidia-container-toolkit.list
-#   sudo apt-get update && sudo apt-get install -y nvidia-container-toolkit
-#   sudo nvidia-ctk runtime configure --runtime=docker
-#   sudo systemctl restart docker
+# Установка nvidia-container-toolkit:
+#   sudo bash scripts/setup-tesla-p100.sh
+#
+# Адреса после запуска:
+#   http://localhost:3000  — Ollama (AI чат)
+#   http://localhost:8765  — GPU Panel (Tesla P100 мониторинг)
 
 services:
 
-  # ─── Ollama — движок AI моделей (с GPU) ──────────────────────────────────
+  # ─── Ollama — движок AI моделей с Tesla P100 ─────────────────────────────
   ollama:
     image: ollama/ollama:latest
     container_name: super-sistema-ollama
@@ -42,7 +41,7 @@ services:
       retries: 5
       start_period: 30s
 
-  # ─── Open WebUI — веб-интерфейс ───────────────────────────────────────────
+  # ─── Open WebUI — веб-интерфейс (CUDA вариант) ───────────────────────────
   open-webui:
     image: ghcr.io/open-webui/open-webui:cuda
     container_name: super-sistema-webui
@@ -75,14 +74,48 @@ services:
       retries: 5
       start_period: 60s
 
-# ─── Тома для хранения данных ─────────────────────────────────────────────
+  # ─── GPU Panel — мониторинг Tesla P100 (порт 8765) ───────────────────────
+  gpu-panel:
+    build:
+      context: ./gpu-panel
+      dockerfile: Dockerfile
+    image: super-sistema-gpu-panel:latest
+    container_name: super-sistema-gpu-panel
+    restart: unless-stopped
+    ports:
+      - "8765:8765"
+    volumes:
+      # Shared папка для trigger-файла (watch-gpu.sh читает с хоста)
+      - gpu_shared:/shared
+    environment:
+      - OLLAMA_URL=http://ollama:11434
+    # GPU доступ нужен для nvidia-smi внутри контейнера
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu, utility]
+    depends_on:
+      - ollama
+    healthcheck:
+      test: ["CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8765/api/status')"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 15s
+
+# ─── Тома ────────────────────────────────────────────────────────────────────
 volumes:
   ollama_data:
     name: super-sistema-ollama-data
   open_webui_data:
     name: super-sistema-webui-data
+  gpu_shared:
+    name: super-sistema-gpu-shared
 
-# ─── Сеть ─────────────────────────────────────────────────────────────────
+# ─── Сеть ────────────────────────────────────────────────────────────────────
 networks:
   default:
     name: super-sistema-network

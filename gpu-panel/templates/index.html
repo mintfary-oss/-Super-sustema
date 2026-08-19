@@ -1,0 +1,373 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Super Sistema — GPU Panel</title>
+<style>
+  :root {
+    --bg:      #0d1117;
+    --card:    #161b22;
+    --border:  #30363d;
+    --green:   #3fb950;
+    --red:     #f85149;
+    --yellow:  #d29922;
+    --blue:    #58a6ff;
+    --text:    #c9d1d9;
+    --muted:   #8b949e;
+    --nvidia:  #76b900;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { background: var(--bg); color: var(--text); font-family: 'Segoe UI', system-ui, monospace; min-height: 100vh; }
+
+  header {
+    background: var(--card); border-bottom: 1px solid var(--border);
+    padding: 14px 24px; display: flex; align-items: center; gap: 12px;
+  }
+  header .logo { font-size: 22px; font-weight: 700; color: var(--nvidia); }
+  header .subtitle { color: var(--muted); font-size: 13px; }
+  header .timestamp { margin-left: auto; color: var(--muted); font-size: 12px; font-family: monospace; }
+
+  .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 16px; padding: 20px 24px; }
+
+  .card {
+    background: var(--card); border: 1px solid var(--border); border-radius: 8px; padding: 18px;
+  }
+  .card h3 { font-size: 13px; text-transform: uppercase; letter-spacing: .8px; color: var(--muted); margin-bottom: 14px; }
+
+  /* GPU main card */
+  .gpu-name { font-size: 20px; font-weight: 700; color: var(--nvidia); margin-bottom: 4px; }
+  .gpu-driver { font-size: 12px; color: var(--muted); margin-bottom: 16px; }
+
+  .stat-row { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; font-size: 14px; }
+  .stat-label { color: var(--muted); }
+  .stat-value { font-weight: 600; font-family: monospace; }
+
+  /* Progress bar */
+  .progress-wrap { margin-bottom: 16px; }
+  .progress-label { display: flex; justify-content: space-between; font-size: 12px; color: var(--muted); margin-bottom: 4px; }
+  .progress-bar { height: 8px; background: var(--border); border-radius: 4px; overflow: hidden; }
+  .progress-fill { height: 100%; border-radius: 4px; transition: width .5s ease; }
+  .fill-green  { background: var(--green); }
+  .fill-yellow { background: var(--yellow); }
+  .fill-red    { background: var(--red); }
+
+  /* Status badge */
+  .badge { display: inline-flex; align-items: center; gap: 6px; padding: 4px 10px; border-radius: 20px; font-size: 12px; font-weight: 600; }
+  .badge-green  { background: rgba(63,185,80,.15);  color: var(--green);  border: 1px solid rgba(63,185,80,.3); }
+  .badge-red    { background: rgba(248,81,73,.15);  color: var(--red);    border: 1px solid rgba(248,81,73,.3); }
+  .badge-yellow { background: rgba(210,153,34,.15); color: var(--yellow); border: 1px solid rgba(210,153,34,.3); }
+  .dot { width: 7px; height: 7px; border-radius: 50%; background: currentColor; }
+  .dot.pulse { animation: pulse 1.5s infinite; }
+  @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.4} }
+
+  /* Button */
+  .btn {
+    width: 100%; padding: 12px; border: none; border-radius: 6px; font-size: 14px; font-weight: 600;
+    cursor: pointer; transition: all .2s; margin-top: 8px;
+  }
+  .btn-primary { background: var(--nvidia); color: #000; }
+  .btn-primary:hover { background: #8fcf00; transform: translateY(-1px); }
+  .btn-primary:active { transform: translateY(0); }
+  .btn-primary:disabled { opacity: .5; cursor: not-allowed; transform: none; }
+  .btn-secondary { background: var(--border); color: var(--text); }
+  .btn-secondary:hover { background: #444c56; }
+
+  /* Processes table */
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  th { text-align: left; color: var(--muted); font-size: 11px; text-transform: uppercase; padding: 0 0 8px; }
+  td { padding: 6px 0; border-top: 1px solid var(--border); font-family: monospace; }
+
+  /* PCIe list */
+  .pcie-item { font-size: 12px; color: var(--muted); font-family: monospace; padding: 4px 0;
+               border-bottom: 1px solid var(--border); word-break: break-all; }
+  .pcie-item:last-child { border-bottom: none; }
+  .pcie-nvidia { color: var(--nvidia); }
+
+  /* Ollama card */
+  .model-chip { display: inline-block; background: var(--border); border-radius: 4px; padding: 3px 8px;
+                font-size: 11px; font-family: monospace; margin: 2px; color: var(--blue); }
+
+  /* SMI raw output */
+  pre { background: #0d1117; border: 1px solid var(--border); border-radius: 4px; padding: 12px;
+        font-size: 11px; font-family: monospace; overflow-x: auto; color: #8b949e; white-space: pre; }
+
+  /* BIOS tip */
+  .bios-tip { background: rgba(210,153,34,.08); border: 1px solid rgba(210,153,34,.3); border-radius: 6px;
+              padding: 14px; font-size: 13px; line-height: 1.6; }
+  .bios-tip code { background: var(--border); padding: 2px 6px; border-radius: 3px; font-family: monospace; }
+
+  /* Alert */
+  #alert { position: fixed; bottom: 20px; right: 20px; padding: 12px 20px; border-radius: 8px;
+           font-size: 14px; font-weight: 600; display: none; z-index: 999; animation: fadein .3s; }
+  .alert-ok  { background: var(--green); color: #000; }
+  .alert-err { background: var(--red); color: #fff; }
+  @keyframes fadein { from{opacity:0;transform:translateY(8px)} to{opacity:1;transform:none} }
+
+  /* no-gpu overlay */
+  .no-gpu { text-align: center; padding: 30px 0; }
+  .no-gpu .icon { font-size: 48px; margin-bottom: 12px; }
+  .no-gpu p { color: var(--muted); font-size: 14px; line-height: 1.6; }
+</style>
+</head>
+<body>
+
+<header>
+  <div>
+    <div class="logo">⚡ Super Sistema — GPU Panel</div>
+    <div class="subtitle">Tesla P100 · Мониторинг в реальном времени</div>
+  </div>
+  <div class="timestamp" id="ts">--:--:--</div>
+</header>
+
+<div class="grid" id="main-grid">
+
+  <!-- GPU карточка -->
+  <div class="card" id="card-gpu">
+    <h3>🎮 NVIDIA GPU</h3>
+    <div id="gpu-content">
+      <div class="no-gpu">
+        <div class="icon">🔍</div>
+        <p>Загрузка данных...</p>
+      </div>
+    </div>
+  </div>
+
+  <!-- Управление -->
+  <div class="card">
+    <h3>⚙️ Управление GPU</h3>
+
+    <div style="margin-bottom:16px">
+      <div class="stat-row">
+        <span class="stat-label">Статус GPU</span>
+        <span id="ctrl-gpu-badge"><span class="badge badge-yellow"><span class="dot pulse"></span>Проверка...</span></span>
+      </div>
+      <div class="stat-row">
+        <span class="stat-label">Ollama</span>
+        <span id="ctrl-ollama-badge"><span class="badge badge-yellow"><span class="dot pulse"></span>Проверка...</span></span>
+      </div>
+      <div class="stat-row">
+        <span class="stat-label">Моделей загружено</span>
+        <span class="stat-value" id="ctrl-models">—</span>
+      </div>
+    </div>
+
+    <button class="btn btn-primary" id="btn-scan" onclick="triggerSetup()">
+      🔌 Активировать Tesla P100
+    </button>
+    <button class="btn btn-secondary" style="margin-top:8px" onclick="loadSmi()">
+      📋 Полный nvidia-smi
+    </button>
+    <button class="btn btn-secondary" style="margin-top:8px"
+            onclick="window.open('http://'+location.hostname+':3000','_blank')">
+      🤖 Открыть Ollama (порт 3000)
+    </button>
+
+    <div id="trigger-status" style="margin-top:12px; font-size:12px; color:var(--muted); display:none"></div>
+  </div>
+
+  <!-- Ollama статус -->
+  <div class="card">
+    <h3>🤖 Ollama — AI движок</h3>
+    <div id="ollama-content">
+      <p style="color:var(--muted); font-size:13px">Загрузка...</p>
+    </div>
+  </div>
+
+  <!-- GPU процессы -->
+  <div class="card">
+    <h3>📊 Процессы на GPU</h3>
+    <div id="processes-content">
+      <p style="color:var(--muted); font-size:13px">Загрузка...</p>
+    </div>
+  </div>
+
+  <!-- PCIe устройства -->
+  <div class="card">
+    <h3>🔌 PCIe — NVIDIA устройства</h3>
+    <div id="pcie-content">
+      <p style="color:var(--muted); font-size:13px">Загрузка...</p>
+    </div>
+  </div>
+
+  <!-- BIOS подсказка -->
+  <div class="card">
+    <h3>💡 Решение проблемы с монитором</h3>
+    <div class="bios-tip">
+      <strong style="color:var(--yellow)">Проблема:</strong> При включении Tesla P100 монитор гаснет.<br><br>
+      <strong>Причина:</strong> Tesla P100 не имеет видеовыходов — это вычислительная карта.<br><br>
+      <strong>Решение:</strong> В BIOS установите:<br>
+      <code>Primary Display → IGFX</code><br>
+      (или <code>Integrated Graphics</code> / <code>CPU Graphics</code>)<br><br>
+      После этого:
+      <ul style="margin-left:16px; margin-top:6px; font-size:12px; color:var(--muted)">
+        <li>Монитор всегда работает через процессор</li>
+        <li>Tesla P100 используется только для AI/вычислений</li>
+        <li>Можно подключать P100 без перезагрузки</li>
+      </ul>
+    </div>
+  </div>
+
+</div>
+
+<!-- nvidia-smi raw output (скрыт по умолчанию) -->
+<div id="smi-block" style="display:none; padding: 0 24px 24px">
+  <div class="card">
+    <h3>📋 nvidia-smi (полный вывод)</h3>
+    <pre id="smi-output">...</pre>
+  </div>
+</div>
+
+<div id="alert"></div>
+
+<script>
+const $ = id => document.getElementById(id);
+
+function showAlert(msg, ok=true) {
+  const el = $('alert');
+  el.textContent = msg;
+  el.className = ok ? 'alert-ok' : 'alert-err';
+  el.style.display = 'block';
+  setTimeout(() => el.style.display = 'none', 4000);
+}
+
+function pct2color(p) {
+  if (p < 60) return 'fill-green';
+  if (p < 85) return 'fill-yellow';
+  return 'fill-red';
+}
+
+function renderBar(label, val, pct, unit='') {
+  const cls = pct2color(pct);
+  return `
+    <div class="progress-wrap">
+      <div class="progress-label"><span>${label}</span><span>${val}${unit} (${pct}%)</span></div>
+      <div class="progress-bar"><div class="progress-fill ${cls}" style="width:${pct}%"></div></div>
+    </div>`;
+}
+
+function renderGpu(gpu) {
+  const memPct = gpu.mem_pct;
+  const utilPct = parseInt(gpu.utilization) || 0;
+  return `
+    <div class="gpu-name">${gpu.name}</div>
+    <div class="gpu-driver">Драйвер NVIDIA v${gpu.driver}</div>
+    ${renderBar('VRAM',
+      (gpu.mem_used_mb/1024).toFixed(1) + ' GB / ' + (gpu.mem_total_mb/1024).toFixed(1) + ' GB',
+      memPct)}
+    ${renderBar('Загрузка GPU', gpu.utilization, utilPct, '%')}
+    <div class="stat-row"><span class="stat-label">Температура</span>
+      <span class="stat-value" style="color:${parseInt(gpu.temperature)>80?'var(--red)':'var(--green)'}">
+        ${gpu.temperature} °C</span></div>
+    <div class="stat-row"><span class="stat-label">Потребление</span>
+      <span class="stat-value">${gpu.power_draw} W</span></div>`;
+}
+
+function renderOllama(ol) {
+  if (!ol.running) {
+    return '<span class="badge badge-red"><span class="dot"></span>Не запущен</span><br><br>'
+         + '<p style="color:var(--muted);font-size:13px">Запустите: docker compose up -d</p>';
+  }
+  const models = ol.models.length
+    ? ol.models.map(m => `<span class="model-chip">${m}</span>`).join('')
+    : '<span style="color:var(--muted);font-size:12px">Нет моделей. Скачайте через скрипт.</span>';
+  return `
+    <div style="margin-bottom:12px">
+      <span class="badge badge-green"><span class="dot pulse"></span>Работает</span>
+    </div>
+    <div style="font-size:12px; color:var(--muted); margin-bottom:6px">
+      Моделей: ${ol.model_count}
+    </div>
+    <div>${models}</div>`;
+}
+
+function renderProcesses(procs) {
+  if (!procs.length) return '<p style="color:var(--muted);font-size:13px">Нет активных процессов на GPU</p>';
+  const rows = procs.map(p =>
+    `<tr><td>${p.pid}</td><td>${p.name}</td><td>${p.memory_mb} MB</td></tr>`).join('');
+  return `<table><tr><th>PID</th><th>Процесс</th><th>VRAM</th></tr>${rows}</table>`;
+}
+
+function renderPcie(devices) {
+  if (!devices.length) return '<p style="color:var(--muted);font-size:13px">NVIDIA устройства не обнаружены в PCIe</p>';
+  return devices.map(d => `<div class="pcie-item pcie-nvidia">${d}</div>`).join('');
+}
+
+// Server-Sent Events — автообновление
+const evtSrc = new EventSource('/stream');
+evtSrc.onmessage = e => {
+  const d = JSON.parse(e.data);
+
+  $('ts').textContent = d.ts;
+
+  // GPU
+  const g = d.gpu;
+  if (g.available && g.gpus && g.gpus.length) {
+    $('card-gpu').querySelector('#gpu-content').innerHTML = g.gpus.map(renderGpu).join('<hr style="margin:12px 0;border-color:var(--border)">');
+    $('ctrl-gpu-badge').innerHTML = `<span class="badge badge-green"><span class="dot pulse"></span>${g.gpus[0].name}</span>`;
+  } else {
+    $('card-gpu').querySelector('#gpu-content').innerHTML =
+      '<div class="no-gpu"><div class="icon">⚠️</div><p>Tesla P100 не обнаружена.<br>Нажмите кнопку ниже или проверьте подключение.</p></div>';
+    $('ctrl-gpu-badge').innerHTML = '<span class="badge badge-red"><span class="dot"></span>Не найдена</span>';
+  }
+
+  // Ollama
+  $('ollama-content').innerHTML = renderOllama(d.ollama);
+  $('ctrl-ollama-badge').innerHTML = d.ollama.running
+    ? '<span class="badge badge-green"><span class="dot pulse"></span>Работает</span>'
+    : '<span class="badge badge-red"><span class="dot"></span>Остановлен</span>';
+  $('ctrl-models').textContent = d.ollama.model_count || '0';
+
+  // Processes
+  $('processes-content').innerHTML = renderProcesses(d.processes);
+};
+
+// Первоначальная загрузка PCIe (не в стриме)
+async function loadPcie() {
+  const r = await fetch('/api/status');
+  const d = await r.json();
+  $('pcie-content').innerHTML = renderPcie(d.pcie_devices || []);
+}
+loadPcie();
+setInterval(loadPcie, 15000);
+
+// Активировать Tesla P100
+async function triggerSetup() {
+  const btn = $('btn-scan');
+  btn.disabled = true;
+  btn.textContent = '⏳ Отправляем запрос...';
+
+  try {
+    const r = await fetch('/api/trigger-setup', {method:'POST'});
+    const d = await r.json();
+    if (d.ok) {
+      showAlert('✅ Запрос отправлен! watch-gpu.sh запустит установку на хосте.');
+      $('trigger-status').style.display = 'block';
+      $('trigger-status').innerHTML =
+        '✅ Флаг создан. Если запущен <code>watch-gpu.sh</code> — установка начнётся автоматически.<br>' +
+        'Иначе запустите вручную: <code>sudo bash scripts/setup-tesla-p100.sh</code>';
+    } else {
+      showAlert('❌ Ошибка: ' + d.message, false);
+    }
+  } catch(err) {
+    showAlert('❌ Ошибка соединения', false);
+  } finally {
+    btn.disabled = false;
+    btn.textContent = '🔌 Активировать Tesla P100';
+  }
+}
+
+// Полный nvidia-smi
+async function loadSmi() {
+  const block = $('smi-block');
+  const pre   = $('smi-output');
+  block.style.display = block.style.display === 'none' ? 'block' : 'none';
+  if (block.style.display === 'none') return;
+  pre.textContent = 'Загрузка...';
+  const r = await fetch('/api/smi-full');
+  const d = await r.json();
+  pre.textContent = d.ok ? d.output : ('Ошибка: ' + d.output);
+}
+</script>
+</body>
+</html>

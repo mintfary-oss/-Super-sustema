@@ -19,3 +19,5 @@ logs/
 *.tmp
 *.bak
 ~$*
+gpu-panel/.venv/
+gpu-panel/__pycache__/
