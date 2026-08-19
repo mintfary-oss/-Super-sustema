@@ -9,6 +9,9 @@ on:
       - 'v*'
   workflow_dispatch:  # Ручной запуск из GitHub UI
 
+permissions:
+  contents: write   # нужно для создания GitHub Release
+
 jobs:
   build-windows-installer:
     name: Compile NSIS → .exe
