@@ -276,14 +276,24 @@ wait_for_webui() {
     port=$(grep -E "^WEBUI_PORT=" "${INSTALL_DIR}/.env" 2>/dev/null | cut -d= -f2 || echo "3000")
     local url="http://localhost:${port}"
 
+    # Open WebUI при первом запуске инициализирует БД и качает зависимости — нужно до 5 минут
     local retries=0
+    local max_retries=90   # 90 × 4 сек = 6 минут
     while ! curl -sf "${url}/health" &>/dev/null; do
         retries=$((retries + 1))
-        if [[ $retries -gt 30 ]]; then
-            log_warn "Веб-интерфейс не ответил за 60 секунд. Проверьте: docker compose logs"
+        if [[ $retries -gt $max_retries ]]; then
+            log_warn "Веб-интерфейс не ответил за $((max_retries * 4)) секунд."
+            log_warn "Контейнер может ещё запускаться. Проверьте:"
+            log_warn "  docker compose logs open-webui --tail=30"
+            log_warn "  docker compose ps"
+            log_warn "Как только запустится — откройте: ${url}"
             return 1
         fi
-        sleep 2
+        # Показывать прогресс каждые 20 секунд
+        if (( retries % 5 == 0 )); then
+            log_info "Ожидаем Open WebUI... (${retries}/${max_retries})"
+        fi
+        sleep 4
     done
 
     log_ok "Веб-интерфейс доступен: ${url}"
