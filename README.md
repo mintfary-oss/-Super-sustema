@@ -3,15 +3,20 @@
 Локальный AI-чат-ассистент. Работает **без интернета и без облаков**.
 Поддерживает все популярные AI модели (Llama, Mistral, DeepSeek, Qwen и другие).
 
-## Быстрая установка
+---
 
-### Linux (Ubuntu, Debian, CentOS, Fedora, Arch)
+## Установка
+
+### Linux (Ubuntu, Debian, Arch, Manjaro, EndeavourOS, Fedora, CentOS и другие)
 
 ```bash
-git clone https://github.com/mintfary-oss/-Super-sustema.git
-cd -Super-sustema
+git clone https://github.com/mintfary-oss/-Super-sustema.git super-sistema
+cd super-sistema
 bash install.sh
 ```
+
+> **Важно:** клонировать нужно в `super-sistema` (с указанием имени папки).
+> Команда `cd -Super-sustema` не работает — bash воспринимает `-S` как флаг.
 
 Откройте браузер: **http://localhost:3000**
 
@@ -19,21 +24,43 @@ bash install.sh
 
 ### Windows
 
-**Вариант 1 — Установщик .exe** (скачайте с [Releases](../../releases)):
+**Вариант 1 — Установщик .exe** (рекомендуется):
 ```
-SuperSistema-Setup.exe → правая кнопка → Запуск от имени администратора
-```
-
-**Вариант 2 — Batch файл** (не нужен .exe):
-```
-installer/install.bat → правая кнопка → Запуск от имени администратора
+Скачать: https://github.com/mintfary-oss/-Super-sustema/releases/latest
+→ SuperSistema-Setup.exe → правая кнопка → Запуск от имени администратора
 ```
 
-**Вариант 3 — PowerShell**:
+**Вариант 2 — Batch файл:**
+```
+installer\install.bat → правая кнопка → Запуск от имени администратора
+```
+
+**Вариант 3 — PowerShell (от администратора):**
 ```powershell
+git clone https://github.com/mintfary-oss/-Super-sustema.git super-sistema
+cd super-sistema\installer
 Set-ExecutionPolicy Bypass -Scope Process -Force
-.\installer\setup.ps1
+.\setup.ps1
 ```
+
+---
+
+## Tesla P100 / NVIDIA GPU
+
+```bash
+git clone https://github.com/mintfary-oss/-Super-sustema.git super-sistema
+cd super-sistema
+bash install.sh
+docker compose -f docker-compose.gpu.yml up -d
+```
+
+Открыть GPU панель: **http://localhost:8765** → нажать **ВКЛЮЧИТЬ TESLA P100**
+
+Скрипт сам:
+- Обнаружит карту в PCIe
+- Установит NVIDIA драйвер
+- Настроит монитор (iGPU остаётся основным)
+- Запустит Ollama с GPU
 
 ---
 
@@ -68,8 +95,6 @@ bash scripts/update.sh
 
 ## AI Модели
 
-После установки откройте интерфейс и скачайте нужную модель:
-
 ```bash
 bash scripts/download-models.sh
 ```
@@ -83,17 +108,6 @@ bash scripts/download-models.sh
 | qwen2.5:7b | 4.7 GB | Русский язык |
 | codellama:7b | 3.8 GB | Написание кода |
 | llama3.1:8b | 4.7 GB | Лучший баланс |
-
----
-
-## GPU (NVIDIA)
-
-```bash
-# Запуск с поддержкой NVIDIA GPU
-docker compose -f docker-compose.gpu.yml up -d
-```
-
-Требуется: NVIDIA драйвер + [nvidia-container-toolkit](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/install-guide.html)
 
 ---
 
