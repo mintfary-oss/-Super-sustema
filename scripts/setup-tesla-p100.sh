@@ -366,14 +366,29 @@ install_container_toolkit() {
     progress OK "nvidia-container-toolkit установлен"
 }
 
+# ─── 4b. УСТАНОВКА DOCKER если отсутствует ──────────────────────────────────
+ensure_docker() {
+    if command -v docker &>/dev/null; then
+        progress OK "Docker уже установлен: $(docker --version | cut -d' ' -f3 | tr -d ',')"
+        return 0
+    fi
+    progress INFO "Docker не найден — устанавливаем автоматически..."
+    curl -fsSL https://get.docker.com | sh
+    systemctl enable docker --now 2>/dev/null || service docker start 2>/dev/null || true
+    sleep 3
+    if command -v docker &>/dev/null; then
+        progress OK "Docker установлен"
+    else
+        progress ERROR "Не удалось установить Docker. Установите вручную: https://docs.docker.com/engine/install/"
+        exit 1
+    fi
+}
+
 # ─── 5. НАСТРОЙКА DOCKER RUNTIME ────────────────────────────────────────────
 configure_docker() {
     progress STEP "Шаг 5/8 — Настройка Docker для работы с P100"
 
-    if ! command -v docker &>/dev/null; then
-        progress WARN "Docker не найден. Установите Docker и повторите."
-        return 1
-    fi
+    ensure_docker
 
     # nvidia-ctk настраивает /etc/docker/daemon.json
     if command -v nvidia-ctk &>/dev/null; then
@@ -490,25 +505,31 @@ start_with_gpu() {
 
     cd "${PROJECT_DIR}"
 
-    local compose
-    if docker compose version &>/dev/null; then
-        compose="docker compose"
+    # Массив команды — надёжно работает и с "docker compose" и с "docker-compose"
+    local -a compose
+    if docker compose version &>/dev/null 2>&1; then
+        compose=(docker compose)
     else
-        compose="docker-compose"
+        compose=(docker-compose)
     fi
+
+    # Создать shared-директорию на хосте (bind mount для GPU Panel)
+    mkdir -p /tmp/super-sistema/shared
 
     # Остановить CPU-вариант
     progress INFO "Останавливаем CPU-контейнеры..."
-    $compose down 2>/dev/null || true
+    "${compose[@]}" down 2>/dev/null || true
 
-    # Запустить GPU-вариант (собрать gpu-panel образ если нужно)
+    # Собрать gpu-panel образ
     progress INFO "Собираем gpu-panel образ..."
-    $compose -f docker-compose.gpu.yml build gpu-panel 2>&1 | \
-        grep -E "Step|Successfully|ERROR" | while read -r l; do progress INFO "$l"; done
+    "${compose[@]}" -f docker-compose.gpu.yml build gpu-panel 2>&1 | \
+        grep -E "Step|step|Successfully|ERROR|error" | \
+        while read -r l; do progress INFO "$l"; done
 
     progress INFO "Запускаем все сервисы с GPU..."
-    $compose -f docker-compose.gpu.yml up -d 2>&1 | \
-        grep -E "Creating|Starting|Running|Error" | while read -r l; do progress INFO "$l"; done
+    "${compose[@]}" -f docker-compose.gpu.yml up -d 2>&1 | \
+        grep -E "Creating|Starting|Running|Error|error" | \
+        while read -r l; do progress INFO "$l"; done
 
     # Ждём запуска Ollama
     local retries=0

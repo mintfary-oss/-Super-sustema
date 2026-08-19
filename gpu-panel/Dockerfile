@@ -2,7 +2,12 @@ FROM python:3.12-slim
 
 WORKDIR /app
 
-# Зависимости
+# Утилиты: lspci (для поиска GPU в PCIe), curl (для healthcheck)
+RUN apt-get update -qq && \
+    apt-get install -y --no-install-recommends pciutils curl && \
+    rm -rf /var/lib/apt/lists/*
+
+# Зависимости Python
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
@@ -10,7 +15,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 COPY app.py .
 COPY templates/ templates/
 
-# Создать папку для shared файлов
+# Директория для shared файлов (bind-mounted с хоста через docker-compose)
 RUN mkdir -p /shared
 
 EXPOSE 8765

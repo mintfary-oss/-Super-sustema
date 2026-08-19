@@ -8,7 +8,6 @@ import asyncio
 import json
 import os
 import subprocess
-import time
 from datetime import datetime
 from typing import AsyncGenerator
 
@@ -21,14 +20,17 @@ app = FastAPI(title="Super Sistema GPU Panel")
 templates = Jinja2Templates(directory="templates")
 
 OLLAMA_URL    = os.getenv("OLLAMA_URL", "http://ollama:11434")
-TRIGGER_FILE  = "/shared/gpu-setup-trigger"
-PROGRESS_FILE = "/shared/progress.log"
-STATUS_FILE   = "/app-data/.gpu-status"
+# Bind mount из /tmp/super-sistema/shared на хосте в /shared в контейнере.
+# setup-tesla-p100.sh пишет прогресс сюда, watch-gpu.sh читает триггер отсюда.
+SHARED_DIR    = os.getenv("SHARED_DIR", "/shared")
+TRIGGER_FILE  = os.path.join(SHARED_DIR, "gpu-setup-trigger")
+PROGRESS_FILE = os.path.join(SHARED_DIR, "progress.log")
 
 
 # ─── Утилиты ─────────────────────────────────────────────────────────────────
 
 def run_cmd(cmd: list[str], timeout: int = 5) -> tuple[bool, str]:
+    """Запустить команду. Возвращает (успех, вывод)."""
     try:
         r = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
         return r.returncode == 0, (r.stdout + r.stderr).strip()
@@ -37,6 +39,7 @@ def run_cmd(cmd: list[str], timeout: int = 5) -> tuple[bool, str]:
 
 
 def get_gpu_info() -> dict:
+    """Получить данные GPU через nvidia-smi."""
     ok, raw = run_cmd([
         "nvidia-smi",
         "--query-gpu=name,memory.total,memory.used,memory.free,"
@@ -48,6 +51,8 @@ def get_gpu_info() -> dict:
 
     gpus = []
     for line in raw.strip().split("\n"):
+        if not line.strip():
+            continue
         p = [x.strip() for x in line.split(",")]
         if len(p) < 8:
             continue
@@ -64,17 +69,20 @@ def get_gpu_info() -> dict:
             "power_draw":   p[6],
             "driver":       p[7],
         })
-    return {"available": True, "gpus": gpus}
+    return {"available": bool(gpus), "gpus": gpus}
 
 
 def get_pcie_nvidia() -> list[str]:
+    """Список NVIDIA/Tesla устройств из lspci."""
     ok, raw = run_cmd(["lspci"])
     if not ok:
         return []
-    return [l for l in raw.splitlines() if "nvidia" in l.lower() or "tesla" in l.lower()]
+    return [l for l in raw.splitlines()
+            if "nvidia" in l.lower() or "tesla" in l.lower()]
 
 
 async def get_ollama_info() -> dict:
+    """Проверить статус Ollama."""
     try:
         async with httpx.AsyncClient(timeout=3.0) as c:
             r = await c.get(f"{OLLAMA_URL}/api/tags")
@@ -86,65 +94,69 @@ async def get_ollama_info() -> dict:
     return {"running": False, "models": []}
 
 
-def setup_is_running() -> bool:
-    """Проверить — идёт ли установка прямо сейчас."""
-    return os.path.exists(TRIGGER_FILE)
-
-
 def read_progress_lines(since_line: int = 0) -> list[dict]:
     """Прочитать строки прогресса начиная с since_line."""
     if not os.path.exists(PROGRESS_FILE):
         return []
     try:
-        with open(PROGRESS_FILE) as f:
+        with open(PROGRESS_FILE, encoding="utf-8") as f:
             lines = f.readlines()
         result = []
-        for line in lines[since_line:]:
-            line = line.strip()
-            if not line:
+        for raw in lines[since_line:]:
+            raw = raw.strip()
+            if not raw:
                 continue
-            parts = line.split("|", 2)
+            parts = raw.split("|", 2)
             if len(parts) == 3:
                 result.append({"level": parts[0], "time": parts[1], "msg": parts[2]})
             else:
-                result.append({"level": "INFO", "time": "", "msg": line})
+                result.append({"level": "INFO", "time": "", "msg": raw})
         return result
     except Exception:
         return []
 
 
+def is_setup_done() -> bool:
+    """Вернуть True если в логе уже есть строка DONE."""
+    return any(l["level"] == "DONE" for l in read_progress_lines(0))
+
+
 # ─── HTTP endpoints ──────────────────────────────────────────────────────────
 
 @app.get("/", response_class=HTMLResponse)
-async def root(request: Request):
+async def root(request: Request) -> HTMLResponse:
     return templates.TemplateResponse(request=request, name="index.html")
 
 
 @app.get("/api/status")
-async def api_status():
-    gpu      = get_gpu_info()
-    ollama   = await get_ollama_info()
-    pcie     = get_pcie_nvidia()
-    running  = setup_is_running()
+async def api_status() -> JSONResponse:
+    """Полный статус: GPU, Ollama, PCIe, флаги."""
+    gpu    = get_gpu_info()
+    ollama = await get_ollama_info()
+    pcie   = get_pcie_nvidia()
     return JSONResponse({
         "ts":      datetime.now().isoformat(),
         "gpu":     gpu,
         "ollama":  ollama,
         "pcie":    pcie,
-        "running": running,
+        "running": os.path.exists(TRIGGER_FILE),
+        "done":    is_setup_done(),
     })
 
 
 @app.post("/api/activate")
-async def api_activate():
-    """Нажатие кнопки ВКЛЮЧИТЬ P100."""
+async def api_activate() -> JSONResponse:
+    """Нажатие кнопки ВКЛЮЧИТЬ P100 — создаёт триггер для watch-gpu.sh."""
     try:
-        os.makedirs(os.path.dirname(TRIGGER_FILE), exist_ok=True)
-        # Очистить старый лог
-        with open(PROGRESS_FILE, "w") as f:
-            f.write(f"INFO|{datetime.now().strftime('%H:%M:%S')}|Запрос на активацию Tesla P100 отправлен\n")
-        # Создать триггер для watch-gpu.sh
-        with open(TRIGGER_FILE, "w") as f:
+        os.makedirs(SHARED_DIR, exist_ok=True)
+        # Очистить старый лог прогресса
+        with open(PROGRESS_FILE, "w", encoding="utf-8") as f:
+            f.write(
+                f"INFO|{datetime.now().strftime('%H:%M:%S')}"
+                f"|Запрос на активацию Tesla P100 отправлен\n"
+            )
+        # Создать файл-триггер — watch-gpu.sh его увидит и запустит установку
+        with open(TRIGGER_FILE, "w", encoding="utf-8") as f:
             f.write(datetime.now().isoformat())
         return JSONResponse({"ok": True})
     except Exception as e:
@@ -152,56 +164,56 @@ async def api_activate():
 
 
 @app.get("/api/progress")
-async def api_progress(since: int = 0):
-    """JSON с новыми строками прогресса."""
+async def api_progress(since: int = 0) -> JSONResponse:
+    """JSON с новыми строками прогресса начиная с позиции since."""
     lines = read_progress_lines(since)
-    total = len(read_progress_lines(0)) + since
-    done  = any(l["level"] == "DONE" for l in read_progress_lines(0))
+    total = since + len(lines)          # FIX: корректный счётчик позиции
+    done  = is_setup_done()
     return JSONResponse({"lines": lines, "total": total, "done": done})
 
 
 @app.get("/stream/gpu")
-async def stream_gpu():
-    """SSE поток с состоянием GPU (каждые 3 сек)."""
+async def stream_gpu() -> StreamingResponse:
+    """SSE: статус GPU, Ollama, PCIe — обновляется каждые 3 сек."""
     async def gen() -> AsyncGenerator[str, None]:
         while True:
-            gpu    = get_gpu_info()
-            ollama = await get_ollama_info()
-            data   = json.dumps({
+            payload = json.dumps({
                 "ts":     datetime.now().strftime("%H:%M:%S"),
-                "gpu":    gpu,
-                "ollama": ollama,
+                "gpu":    get_gpu_info(),
+                "ollama": await get_ollama_info(),
                 "pcie":   get_pcie_nvidia(),
             }, ensure_ascii=False)
-            yield f"data: {data}\n\n"
+            yield f"data: {payload}\n\n"
             await asyncio.sleep(3)
 
-    return StreamingResponse(gen(), media_type="text/event-stream",
-                              headers={"Cache-Control": "no-cache",
-                                       "X-Accel-Buffering": "no"})
+    return StreamingResponse(
+        gen(), media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
 
 
 @app.get("/stream/progress")
-async def stream_progress():
-    """SSE поток прогресса установки (читает progress.log)."""
+async def stream_progress() -> StreamingResponse:
+    """SSE: прогресс установки в реальном времени (читает progress.log)."""
     async def gen() -> AsyncGenerator[str, None]:
         sent = 0
         while True:
-            lines = read_progress_lines(sent)
-            if lines:
-                sent += len(lines)
-                data = json.dumps({"lines": lines, "sent": sent}, ensure_ascii=False)
-                yield f"data: {data}\n\n"
-            # Остановить стрим если установка завершена
-            all_lines = read_progress_lines(0)
-            if any(l["level"] == "DONE" for l in all_lines):
-                yield "data: {\"done\": true}\n\n"
+            new_lines = read_progress_lines(sent)
+            if new_lines:
+                sent += len(new_lines)
+                yield f"data: {json.dumps({'lines': new_lines, 'sent': sent}, ensure_ascii=False)}\n\n"
+
+            # Завершить стрим когда установка закончена
+            if is_setup_done():
+                yield 'data: {"done": true}\n\n'
                 return
+
             await asyncio.sleep(1)
 
-    return StreamingResponse(gen(), media_type="text/event-stream",
-                              headers={"Cache-Control": "no-cache",
-                                       "X-Accel-Buffering": "no"})
+    return StreamingResponse(
+        gen(), media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
 
 
 if __name__ == "__main__":

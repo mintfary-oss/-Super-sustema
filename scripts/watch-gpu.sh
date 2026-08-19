@@ -148,11 +148,12 @@ main() {
 
         # ── Проверка 1: Файл-триггер от веб-панели ──────────────────────────
         if [[ -f "${TRIGGER_FILE}" ]]; then
-            local trigger_time
+            # Примечание: local нельзя использовать вне функции, используем обычную переменную
             trigger_time=$(cat "${TRIGGER_FILE}" 2>/dev/null || echo "unknown")
             log_color "${CYAN}" "Триггер от GPU Panel (${trigger_time})"
             clear_trigger
             run_setup "Кнопка в браузере (GPU Panel)"
+            unset trigger_time
             continue
         fi
 
@@ -165,17 +166,18 @@ main() {
                 run_setup "Новая NVIDIA карта в PCIe"
             elif [[ -n "$PREV_DEVICES" && -z "$CURR_DEVICES" ]]; then
                 log "GPU отключена (устройство исчезло из PCIe)"
-                # Обновить статус
                 echo "STATUS=disconnected" > "${STATUS_FILE}"
-                # Переключить Ollama на CPU режим
-                cd "${PROJECT_DIR}" && \
-                    docker compose up -d 2>>"${LOG_FILE}" &
+                # Переключить на CPU-вариант
+                local -a _dc
+                if docker compose version &>/dev/null 2>&1; then _dc=(docker compose)
+                else _dc=(docker-compose); fi
+                cd "${PROJECT_DIR}" && "${_dc[@]}" up -d >>"${LOG_FILE}" 2>&1 &
             fi
             PREV_DEVICES="$CURR_DEVICES"
         fi
 
         # ── Проверка 3: GPU есть, но контейнер не запущен с GPU ─────────────
-        if [[ -n "$CURR_DEVICES" ]] && nvidia_is_ready; then
+        if [[ -n "${CURR_DEVICES:-}" ]] && nvidia_is_ready; then
             # Проверить используется ли GPU вариант docker-compose
             if ! docker ps --format '{{.Names}}' 2>/dev/null | grep -q "super-sistema-gpu-panel"; then
                 log_color "${YELLOW}" "GPU активна, но GPU Panel не запущена → запускаем GPU конфиг"

@@ -1,20 +1,19 @@
-# Super Sistema — Docker Compose (NVIDIA GPU вариант + Tesla P100 Panel)
+# Super Sistema — Docker Compose (NVIDIA GPU + Tesla P100 Panel)
 # Требует: NVIDIA GPU + nvidia-container-toolkit
 #
 # Запуск:    docker compose -f docker-compose.gpu.yml up -d
 # Остановка: docker compose -f docker-compose.gpu.yml down
 # Логи:      docker compose -f docker-compose.gpu.yml logs -f
 #
-# Установка nvidia-container-toolkit:
-#   sudo bash scripts/setup-tesla-p100.sh
+# Установка всего:  sudo bash scripts/setup-tesla-p100.sh
 #
 # Адреса после запуска:
-#   http://localhost:3000  — Ollama (AI чат)
-#   http://localhost:8765  — GPU Panel (Tesla P100 мониторинг)
+#   http://localhost:3000  — AI Чат (Open WebUI + Ollama)
+#   http://localhost:8765  — GPU Panel (Tesla P100 кнопка + мониторинг)
 
 services:
 
-  # ─── Ollama — движок AI моделей с Tesla P100 ─────────────────────────────
+  # ─── Ollama — AI движок с Tesla P100 ──────────────────────────────────────
   ollama:
     image: ollama/ollama:latest
     container_name: super-sistema-ollama
@@ -41,7 +40,7 @@ services:
       retries: 5
       start_period: 30s
 
-  # ─── Open WebUI — веб-интерфейс (CUDA вариант) ───────────────────────────
+  # ─── Open WebUI — веб-интерфейс (CUDA вариант) ────────────────────────────
   open-webui:
     image: ghcr.io/open-webui/open-webui:cuda
     container_name: super-sistema-webui
@@ -55,8 +54,6 @@ services:
       - WEBUI_SECRET_KEY=${WEBUI_SECRET_KEY:-super-sistema-secret-change-me}
       - WEBUI_AUTH=${WEBUI_AUTH:-false}
       - DEFAULT_MODELS=${DEFAULT_MODELS:-llama3.1:8b}
-      - ENABLE_RAG_WEB_SEARCH=${ENABLE_RAG_WEB_SEARCH:-false}
-      - ENABLE_IMAGE_GENERATION=${ENABLE_IMAGE_GENERATION:-false}
     deploy:
       resources:
         reservations:
@@ -74,7 +71,7 @@ services:
       retries: 5
       start_period: 60s
 
-  # ─── GPU Panel — мониторинг Tesla P100 (порт 8765) ───────────────────────
+  # ─── GPU Panel — кнопка P100 + мониторинг (порт 8765) ─────────────────────
   gpu-panel:
     build:
       context: ./gpu-panel
@@ -85,11 +82,13 @@ services:
     ports:
       - "8765:8765"
     volumes:
-      # Shared папка для trigger-файла (watch-gpu.sh читает с хоста)
-      - gpu_shared:/shared
+      # ВАЖНО: bind mount — хост-скрипт и контейнер читают/пишут ОДНУ папку.
+      # setup-tesla-p100.sh пишет progress.log сюда,
+      # watch-gpu.sh читает trigger-файл отсюда.
+      - /tmp/super-sistema/shared:/shared
     environment:
       - OLLAMA_URL=http://ollama:11434
-    # GPU доступ нужен для nvidia-smi внутри контейнера
+    # GPU нужен чтобы nvidia-smi работал внутри контейнера
     deploy:
       resources:
         reservations:
@@ -100,22 +99,22 @@ services:
     depends_on:
       - ollama
     healthcheck:
-      test: ["CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8765/api/status')"]
+      test: ["CMD", "python3", "-c",
+             "import urllib.request; urllib.request.urlopen('http://localhost:8765/api/status', timeout=3)"]
       interval: 30s
       timeout: 10s
       retries: 3
       start_period: 15s
 
-# ─── Тома ────────────────────────────────────────────────────────────────────
+# ─── Тома ─────────────────────────────────────────────────────────────────────
 volumes:
   ollama_data:
     name: super-sistema-ollama-data
   open_webui_data:
     name: super-sistema-webui-data
-  gpu_shared:
-    name: super-sistema-gpu-shared
+  # gpu_shared удалён — заменён bind mount выше
 
-# ─── Сеть ────────────────────────────────────────────────────────────────────
+# ─── Сеть ─────────────────────────────────────────────────────────────────────
 networks:
   default:
     name: super-sistema-network
