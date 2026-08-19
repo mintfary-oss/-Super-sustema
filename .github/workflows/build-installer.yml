@@ -19,22 +19,31 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Install NSIS
-        run: choco install nsis -y --no-progress
-
-      - name: Create dummy assets (if not present)
         shell: pwsh
         run: |
-          if (-not (Test-Path "assets")) { New-Item -ItemType Directory -Path "assets" }
-          # Создаём placeholder если иконки нет
-          if (-not (Test-Path "assets/icon.ico")) {
-            Write-Host "Иконка отсутствует — используем системную"
-          }
-          if (-not (Test-Path "LICENSE")) {
-            "MIT License - Super Sistema" | Out-File -FilePath "LICENSE" -Encoding UTF8
-          }
+          choco install nsis -y --no-progress
+          # Добавить NSIS в PATH текущей сессии
+          $nsisPath = "C:\Program Files (x86)\NSIS"
+          echo "$nsisPath" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+          Write-Host "NSIS installed to: $nsisPath"
+
+      - name: Verify NSIS
+        shell: pwsh
+        run: |
+          makensis /VERSION
+          Write-Host "NSIS is available in PATH"
 
       - name: Build NSIS installer
-        run: makensis installer/setup.nsi
+        shell: pwsh
+        run: |
+          makensis installer/setup.nsi
+          if (Test-Path "installer/SuperSistema-Setup.exe") {
+            $size = (Get-Item "installer/SuperSistema-Setup.exe").length / 1MB
+            Write-Host "SUCCESS: SuperSistema-Setup.exe built ($([math]::Round($size, 1)) MB)"
+          } else {
+            Write-Error "FAILED: SuperSistema-Setup.exe not found after build"
+            exit 1
+          }
 
       - name: Upload installer artifact
         uses: actions/upload-artifact@v4
@@ -58,7 +67,7 @@ jobs:
             **Linux:**
             ```bash
             git clone https://github.com/mintfary-oss/-Super-sustema.git
-            cd -Super-sustema
+            cd -- -Super-sustema
             bash install.sh
             ```
 
