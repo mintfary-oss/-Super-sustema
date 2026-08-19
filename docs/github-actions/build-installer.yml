@@ -1,0 +1,73 @@
+# Super Sistema — GitHub Actions: Сборка Windows .exe установщика
+# Запускается при создании тега версии: git tag v1.0.0 && git push --tags
+
+name: Build Windows Installer
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:  # Ручной запуск из GitHub UI
+
+jobs:
+  build-windows-installer:
+    name: Compile NSIS → .exe
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install NSIS
+        run: choco install nsis -y --no-progress
+
+      - name: Create dummy assets (if not present)
+        shell: pwsh
+        run: |
+          if (-not (Test-Path "assets")) { New-Item -ItemType Directory -Path "assets" }
+          # Создаём placeholder если иконки нет
+          if (-not (Test-Path "assets/icon.ico")) {
+            Write-Host "Иконка отсутствует — используем системную"
+          }
+          if (-not (Test-Path "LICENSE")) {
+            "MIT License - Super Sistema" | Out-File -FilePath "LICENSE" -Encoding UTF8
+          }
+
+      - name: Build NSIS installer
+        run: makensis installer/setup.nsi
+
+      - name: Upload installer artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: SuperSistema-Setup
+          path: installer/SuperSistema-Setup.exe
+          retention-days: 30
+
+      - name: Create GitHub Release
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          name: "Super Sistema ${{ github.ref_name }}"
+          body: |
+            ## Super Sistema ${{ github.ref_name }}
+
+            ### Установка
+
+            **Windows:** Скачайте `SuperSistema-Setup.exe` и запустите от имени администратора.
+
+            **Linux:**
+            ```bash
+            git clone https://github.com/mintfary-oss/-Super-sustema.git
+            cd -Super-sustema
+            bash install.sh
+            ```
+
+            ### Требования
+            - Windows 10+ / Linux (Ubuntu 20.04+, Debian 11+)
+            - Docker Desktop (Windows) или Docker Engine (Linux)
+            - 8 GB RAM минимум
+            - 20 GB свободного места
+          files: |
+            installer/SuperSistema-Setup.exe
+          draft: false
+          prerelease: false

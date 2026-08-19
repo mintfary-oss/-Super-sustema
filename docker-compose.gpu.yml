@@ -1,0 +1,88 @@
+# Super Sistema — Docker Compose (NVIDIA GPU вариант)
+# Требует: NVIDIA GPU + nvidia-container-toolkit
+#
+# Запуск с GPU:   docker compose -f docker-compose.gpu.yml up -d
+# Остановка:      docker compose -f docker-compose.gpu.yml down
+#
+# Установка nvidia-container-toolkit (Ubuntu):
+#   curl -fsSL https://nvidia.github.io/libnvidia-container/gpgkey | sudo gpg --dearmor -o /usr/share/keyrings/nvidia-container-toolkit-keyring.gpg
+#   curl -s -L https://nvidia.github.io/libnvidia-container/stable/deb/nvidia-container-toolkit.list | \
+#     sed 's#deb https://#deb [signed-by=/usr/share/keyrings/nvidia-container-toolkit-keyring.gpg] https://#g' | \
+#     sudo tee /etc/apt/sources.list.d/nvidia-container-toolkit.list
+#   sudo apt-get update && sudo apt-get install -y nvidia-container-toolkit
+#   sudo nvidia-ctk runtime configure --runtime=docker
+#   sudo systemctl restart docker
+
+services:
+
+  # ─── Ollama — движок AI моделей (с GPU) ──────────────────────────────────
+  ollama:
+    image: ollama/ollama:latest
+    container_name: super-sistema-ollama
+    restart: unless-stopped
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama_data:/root/.ollama
+    environment:
+      - OLLAMA_KEEP_ALIVE=${OLLAMA_KEEP_ALIVE:-24h}
+      - OLLAMA_NUM_PARALLEL=${OLLAMA_NUM_PARALLEL:-2}
+      - OLLAMA_MAX_LOADED_MODELS=${OLLAMA_MAX_LOADED_MODELS:-2}
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    healthcheck:
+      test: ["CMD", "ollama", "list"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+
+  # ─── Open WebUI — веб-интерфейс ───────────────────────────────────────────
+  open-webui:
+    image: ghcr.io/open-webui/open-webui:cuda
+    container_name: super-sistema-webui
+    restart: unless-stopped
+    ports:
+      - "${WEBUI_PORT:-3000}:8080"
+    volumes:
+      - open_webui_data:/app/backend/data
+    environment:
+      - OLLAMA_BASE_URL=http://ollama:11434
+      - WEBUI_SECRET_KEY=${WEBUI_SECRET_KEY:-super-sistema-secret-change-me}
+      - WEBUI_AUTH=${WEBUI_AUTH:-false}
+      - DEFAULT_MODELS=${DEFAULT_MODELS:-llama3.1:8b}
+      - ENABLE_RAG_WEB_SEARCH=${ENABLE_RAG_WEB_SEARCH:-false}
+      - ENABLE_IMAGE_GENERATION=${ENABLE_IMAGE_GENERATION:-false}
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    depends_on:
+      ollama:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+
+# ─── Тома для хранения данных ─────────────────────────────────────────────
+volumes:
+  ollama_data:
+    name: super-sistema-ollama-data
+  open_webui_data:
+    name: super-sistema-webui-data
+
+# ─── Сеть ─────────────────────────────────────────────────────────────────
+networks:
+  default:
+    name: super-sistema-network

@@ -1,0 +1,21 @@
+# Super Sistema — .gitignore
+
+# Конфигурация с секретами (не коммитить!)
+.env
+
+# Скомпилированный установщик (собирается через GitHub Actions)
+installer/SuperSistema-Setup.exe
+
+# Системные файлы
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Логи
+*.log
+logs/
+
+# Временные файлы
+*.tmp
+*.bak
+~$*
