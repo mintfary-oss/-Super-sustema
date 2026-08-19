@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
-# Super Sistema — Установщик для Linux
-# Использование: bash install.sh
+# Super Sistema v1.1 — Установщик для Linux
+# Использование: git clone https://github.com/mintfary-oss/-Super-sustema.git super-sistema
+#                cd super-sistema && bash install.sh
 # Поддерживает: Ubuntu 20.04+, Debian 11+, CentOS 8+, Fedora 36+, Arch Linux,
 #               Manjaro, EndeavourOS, Garuda, ArcoLinux и другие Arch-based
 

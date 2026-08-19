@@ -1,6 +1,6 @@
 # Super Sistema — Техническая документация
 
-**Версия:** 1.0.0  
+**Версия:** 1.1.0  
 **Дата:** Август 2026  
 **Тип:** Локальный AI-ассистент
 
@@ -126,6 +126,36 @@ Super Sistema — это автономная система для запуск
 |-------------|-------|---------------------|
 | Open WebUI  | 3000  | Внешний (браузер)   |
 | Ollama API  | 11434 | Только внутри Docker |
+| GPU Panel   | 8765  | Внешний (Tesla P100 кнопка) |
+
+### 3.3 GPU Panel — Tesla P100 (порт 8765)
+
+```
+[Браузер: http://localhost:8765]
+        │  HTTP :8765
+        ▼
+┌───────────────────────┐
+│  gpu-panel (FastAPI)  │  ← SSE потоки статуса GPU
+│  app.py               │    POST /api/activate → trigger файл
+└──────────┬────────────┘
+           │  bind mount /tmp/super-sistema/shared
+           ▼
+┌───────────────────────┐
+│  watch-gpu.sh (хост)  │  ← читает trigger файл
+│  setup-tesla-p100.sh  │    пишет прогресс в progress.log
+└───────────────────────┘
+```
+
+API endpoints GPU Panel:
+
+| Endpoint | Метод | Описание |
+|----------|-------|----------|
+| `/` | GET | HTML панель с кнопкой и мониторингом |
+| `/api/status` | GET | JSON: статус GPU, Ollama, PCIe |
+| `/api/activate` | POST | Нажатие кнопки → создаёт trigger файл |
+| `/api/progress?since=N` | GET | Строки прогресса установки |
+| `/stream/gpu` | GET SSE | Статус GPU каждые 3 сек |
+| `/stream/progress` | GET SSE | Прогресс установки в реальном времени |
 
 ---
 
@@ -162,18 +192,27 @@ Super Sistema — это автономная система для запуск
 ```
 super-sistema/
 ├── docker-compose.yml          # CPU вариант (основной)
-├── docker-compose.gpu.yml      # NVIDIA GPU вариант
+├── docker-compose.gpu.yml      # NVIDIA GPU + Tesla P100 вариант
 ├── .env.example                # Шаблон конфигурации
 ├── .env                        # Реальный конфиг (создаётся при установке)
-├── install.sh                  # Установщик Linux (bash)
+├── install.sh                  # Установщик Linux (bash) v1.1
 ├── uninstall.sh                # Удаление Linux
 ├── installer/
 │   ├── install.bat             # Установщик Windows (двойной клик)
 │   ├── setup.ps1               # PowerShell установщик
 │   └── setup.nsi               # NSIS скрипт (источник .exe)
+├── gpu-panel/                  # Tesla P100 веб-панель управления
+│   ├── app.py                  # FastAPI: кнопка + статус GPU + SSE потоки
+│   ├── Dockerfile              # python:3.12-slim образ
+│   ├── requirements.txt        # fastapi, uvicorn, httpx, jinja2
+│   └── templates/
+│       └── index.html          # Интерфейс: кнопка P100 + live мониторинг
 ├── scripts/
-│   ├── download-models.sh      # Скачать AI модели
-│   └── update.sh               # Обновить систему
+│   ├── download-models.sh      # Скачать AI модели (меню)
+│   ├── update.sh               # Обновить все образы
+│   ├── setup-tesla-p100.sh     # Авто-установка Tesla P100 (8 шагов)
+│   ├── watch-gpu.sh            # Мониторинг горячего подключения GPU
+│   └── install-gpu-monitor.sh  # Установка watch-gpu как systemd сервис
 ├── docs/
 │   ├── TECHNICAL.md            # Этот файл
 │   ├── USERGUIDE.md            # Руководство пользователя
@@ -182,12 +221,10 @@ super-sistema/
 │   ├── CONVERSATION.md         # Лог создания проекта
 │   ├── DONE.md                 # Что сделано
 │   ├── TODO.md                 # Что осталось
-│   ├── ERRORS.md               # Ошибки и решения
-│   └── github-actions/
-│       └── build-installer.yml # CI/CD workflow
+│   └── ERRORS.md               # Ошибки и решения
 ├── .github/
 │   └── workflows/
-│       └── build-installer.yml # Активный CI/CD
+│       └── build-installer.yml # CI/CD: сборка Windows .exe при git tag v*
 ├── .gitignore
 ├── LICENSE
 └── README.md

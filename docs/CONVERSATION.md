@@ -119,3 +119,38 @@
 8. Финальный статус: done=true
 
 **Все файлы в порядке. Код без ошибок. Приложение готово к деплою.**
+
+---
+
+### Пользователь (сеанс 7):
+> Так на гитхабе все файлы проверь везде должна быть актуальная информация.
+> Команды для установки напиши. Я получил ошибку:
+> `-bash: cd: -S: invalid option` после `cd -- -Super-sustema`
+
+### Pulumi Neo:
+Проблема воспроизведена на сервере. Имя папки `-Super-sustema` (начинается с `-`) воспринимается bash как флаги при `cd`.
+
+**Исправлена команда клонирования во всех файлах:**
+```bash
+# НЕПРАВИЛЬНО (было во всех docs):
+git clone https://github.com/mintfary-oss/-Super-sustema.git
+cd -Super-sustema   # bash: -S: invalid option
+
+# ПРАВИЛЬНО:
+git clone https://github.com/mintfary-oss/-Super-sustema.git super-sistema
+cd super-sistema
+bash install.sh
+```
+
+**Аудит репозитория — найдено 8 устаревших мест, все исправлены:**
+
+| Файл | Проблема | Исправлено |
+|------|----------|------------|
+| docs/USERGUIDE.md | Неверная команда cd + версия 1.0.0 | ✅ |
+| docs/TECHNICAL.md | Версия 1.0.0, нет gpu-panel в структуре | ✅ |
+| docs/PLAN.md | Неверная структура, этапы не закрыты | ✅ |
+| docs/ERRORS.md | Нет Bug #10 (cd ошибка) | ✅ |
+| docs/REPORT.md | Версия 1.0.0, нет v1.1.0 багов | ✅ |
+| docs/CONVERSATION.md | Нет сеанса 7 | ✅ |
+| install.sh | Заголовок v1.0 | ✅ |
+| .gitignore | Нет *.pyc | ✅ |

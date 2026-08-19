@@ -1,6 +1,6 @@
 # Super Sistema — Руководство пользователя
 
-**Версия:** 1.0.0
+**Версия:** 1.1.0
 
 ---
 
@@ -19,12 +19,29 @@
 ### Linux
 
 ```bash
-git clone https://github.com/mintfary-oss/-Super-sustema.git
-cd -Super-sustema
+git clone https://github.com/mintfary-oss/-Super-sustema.git super-sistema
+cd super-sistema
 bash install.sh
 ```
 
+> **Важно:** обязательно указывайте `super-sistema` в конце команды clone.
+> Без этого папка создаётся как `-Super-sustema`, и `cd` в неё не работает
+> (bash воспринимает `-S` как флаг).
+
 Скрипт сам установит Docker если его нет, скачает образы и запустит систему.
+
+### Tesla P100 / NVIDIA GPU (опционально)
+
+```bash
+git clone https://github.com/mintfary-oss/-Super-sustema.git super-sistema
+cd super-sistema
+bash install.sh                                        # базовая установка
+docker compose -f docker-compose.gpu.yml up -d        # запуск с GPU
+```
+
+Открыть GPU панель: **http://localhost:8765** → нажать **ВКЛЮЧИТЬ TESLA P100**
+
+Скрипт сам найдёт карту, установит NVIDIA драйверы, настроит монитор (iGPU остаётся основным) и запустит Ollama с GPU.
 
 ---
 

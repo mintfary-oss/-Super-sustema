@@ -20,4 +20,6 @@ logs/
 *.bak
 ~$*
 gpu-panel/.venv/
-gpu-panel/__pycache__/
+**/__pycache__/
+*.pyc
+*.pyo

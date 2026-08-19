@@ -1,8 +1,8 @@
 # Отчёт по проекту — Super Sistema
 
-**Проект:** Super Sistema v1.0.0  
+**Проект:** Super Sistema v1.1.0  
 **Дата создания:** Август 2026  
-**Последнее тестирование:** Август 2026  
+**Последнее обновление:** Август 2026  
 **Исполнитель:** Pulumi Neo (AI-агент)  
 **Репозиторий:** https://github.com/mintfary-oss/-Super-sustema
 
@@ -156,6 +156,23 @@ Super Sistema — приложение на Docker Compose. Не использ�
 
 ---
 
+## 3.3 Исправления v1.1.0 (9 багов установщиков)
+
+| # | Файл | Баг | Исправление |
+|---|------|-----|-------------|
+| 1 | install.sh | Arch: EndeavourOS/Garuda/ArcoLinux не распознавались | Добавлены в case |
+| 2 | install.sh | Arch: устанавливал docker-compose v1 (устаревший) | Только `docker` (v2 встроен) |
+| 3 | install.sh | COMPOSE_CMD как строка — word splitting | `DC=(docker compose)` массив |
+| 4 | install.sh | --skip-group не обрабатывался | Флаг парсится, функция пропускается |
+| 5 | setup.nsi | Linux uninstall.sh в Windows установщике | Удалён, добавлен setup.ps1 |
+| 6 | setup.nsi | docker compose без cd — неверная рабочая папка | `cd /d "$INSTDIR"` |
+| 7 | setup.nsi | setup.ps1 не удалялся при деинсталляции | Добавлен Delete |
+| 8 | install.bat | Hardcoded timeout 15s перед ollama pull | Retry loop 30×3 сек |
+| 9 | setup.ps1 | MyInvocation.ScriptName не работает из NSIS | PSScriptRoot с fallback |
+| 10 | README/docs | `cd -Super-sustema` — bash ошибка флага `-S` | Клонировать в `super-sistema` |
+
+---
+
 ## 4. Хронология работы
 
 | Время | Этап | Результат |
@@ -172,9 +189,12 @@ Super Sistema — приложение на Docker Compose. Не использ�
 | 13:33–13:45 | Tesla P100 поддержка | GPU скрипты + панель |
 | 13:53–14:00 | Переработка кнопки | Один клик → всё само |
 | 14:13–14:22 | Полное тестирование | 5 багов исправлено |
-| 14:26–сейчас | Повторное тестирование | 31/31 тест ✅ |
+| 14:26–14:40 | Повторное тестирование | 31/31 тест ✅ |
+| 14:40–15:00 | v1.1.0: 9 багов установщиков | Исправлено, Release v1.1.0 |
+| 15:00–15:10 | Fix: cd -Super-sustema | Bug #10, README/docs обновлены |
+| 15:10–15:30 | Аудит всего репозитория | Все файлы обновлены до v1.1.0 |
 
-**Общее время работы: ~3 часа**
+**Общее время работы: ~3.5 часа**
 
 ---
 

@@ -171,6 +171,36 @@ fi
 
 ---
 
+### ОШИБКА #10: `cd -Super-sustema` — "invalid option"
+
+**Описание:**
+```
+-bash: cd: -S: invalid option
+cd: usage: cd [-L|[-P [-e]]] [-@] [dir]
+bash: install.sh: No such file or directory
+```
+
+**Причина:** Имя папки начинается с `-` (минуса). Bash принимает `-Super-sustema` за флаги команды `cd`. Флаг `-S` не существует — ошибка.
+
+**Воспроизводится:**
+```bash
+git clone https://github.com/mintfary-oss/-Super-sustema.git
+cd -Super-sustema   # ← ОШИБКА: bash читает -S как флаг
+```
+
+**Исправление:** При клонировании указывать целевое имя папки без минуса:
+```bash
+git clone https://github.com/mintfary-oss/-Super-sustema.git super-sistema
+cd super-sistema    # ← РАБОТАЕТ
+bash install.sh
+```
+
+**Исправлено в:** README.md, USERGUIDE.md, PLAN.md, все документы — везде исправлена команда клонирования.
+
+**Статус:** ✅ Исправлено.
+
+---
+
 ## Известные ограничения
 
 | Ограничение | Описание | Обходное решение |
