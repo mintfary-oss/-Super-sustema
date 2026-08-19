@@ -1,5 +1,7 @@
 # Ошибки и решения — Super Sistema
 
+*Последнее обновление: Август 2026*
+
 ---
 
 ## Ошибки в процессе разработки
@@ -15,11 +17,9 @@ NSIS: not installed
 
 **Причина:** На сборочном Linux-сервере не установлен пакет `nsis`.
 
-**Решение 1 (рекомендуется):** Использовать GitHub Actions для сборки .exe:
+**Решение (принятое):** GitHub Actions для автосборки .exe на Windows runner:
 ```yaml
 # .github/workflows/build-installer.yml
-name: Build Installer
-on: [push]
 jobs:
   build-exe:
     runs-on: windows-latest
@@ -29,90 +29,190 @@ jobs:
         run: makensis installer/setup.nsi
 ```
 
-**Решение 2:** Установить NSIS вручную:
-```bash
-# Ubuntu/Debian
-sudo apt-get install nsis
-
-# Затем компилировать:
-makensis installer/setup.nsi
-```
-
-**Статус:** Обходное решение — NSIS скрипт создан, .exe будет собран через GitHub Actions.
+**Статус:** ✅ Решено — GitHub Actions собирает .exe, Release v1.0.0 опубликован.
 
 ---
 
-### ОШИБКА #2: Docker не доступен в текущем окружении
+### ОШИБКА #2: Docker не доступен на сборочном сервере
 
 **Описание:**
 ```
 Docker: not in PATH
 ```
 
-**Причина:** Сборочный сервер (облачный агент Pulumi Neo) не имеет Docker daemon.
+**Причина:** Облачный агент Pulumi Neo не имеет Docker daemon.
 
-**Решение:** Тестирование docker-compose выполняется синтаксически.
-Реальный запуск — на машине пользователя после установки Docker.
+**Решение:** Синтаксическая валидация docker-compose через `python3 -c "import yaml..."`.
+Реальный запуск — на машине пользователя.
 
-**Статус:** Файлы Docker Compose корректны синтаксически, готовы к запуску.
+**Статус:** ✅ YAML валидация проходит. Docker Compose файлы корректны.
 
 ---
 
-### ОШИБКА #3: sudo недоступен в окружении
+### ОШИБКА #3: Named volume вместо bind mount в docker-compose.gpu.yml
+
+**Описание:** Хост-скрипт `watch-gpu.sh` писал файл-триггер в `/tmp/super-sistema/shared/`
+на хосте, но `gpu-panel` контейнер читал из именованного тома Docker — разные хранилища.
+
+**Код до исправления:**
+```yaml
+volumes:
+  - gpu_shared:/shared
+```
+
+**Причина:** Named volume изолирован внутри Docker — хост и контейнер не видят одни файлы.
+
+**Исправление:**
+```yaml
+volumes:
+  - /tmp/super-sistema/shared:/shared  # bind mount — хост и контейнер в одной папке
+```
+
+**Статус:** ✅ Исправлено в сессии 14:13.
+
+---
+
+### ОШИБКА #4: SHARED_DIR игнорировал os.getenv() в app.py
+
+**Описание:** Переменная окружения `SHARED_DIR` игнорировалась — путь всегда был `/shared`.
+
+**Код до исправления:**
+```python
+SHARED_DIR = "/shared"  # жёстко прописан, env не работал
+```
+
+**Исправление:**
+```python
+SHARED_DIR = os.getenv("SHARED_DIR", "/shared")  # читает из env, fallback = /shared
+```
+
+**Статус:** ✅ Исправлено.
+
+---
+
+### ОШИБКА #5: Неверный счётчик позиций в /api/progress
+
+**Описание:** `total` считался неправильно — при вызове `/api/progress?since=5`
+возвращалось `total=5+5=10` вместо `total=5+<новые строки>`.
+
+**Код до исправления:**
+```python
+total = since + since + len(lines)   # BUG: since добавлялся дважды
+```
+
+**Исправление:**
+```python
+total = since + len(lines)   # FIX: правильный счётчик позиции
+```
+
+**Статус:** ✅ Исправлено.
+
+---
+
+### ОШИБКА #6: Dockerfile не создавал /shared и не устанавливал pciutils
+
+**Описание:**
+- `/shared` не создавался → bind mount мог не монтироваться корректно
+- `pciutils` (нужен для `lspci`) не устанавливался → `/api/status` возвращал пустой `pcie`
+
+**Исправление:**
+```dockerfile
+RUN apt-get update -qq && \
+    apt-get install -y --no-install-recommends pciutils curl && \
+    rm -rf /var/lib/apt/lists/*
+
+RUN mkdir -p /shared
+```
+
+**Статус:** ✅ Исправлено.
+
+---
+
+### ОШИБКА #7: `local` вне функции в watch-gpu.sh
 
 **Описание:**
 ```
-/bin/bash: line 1: sudo: command not found
+watch-gpu.sh: line 171: local: can only be used in a function
+```
+`local -a _dc` использовалась в основном цикле `while` вне функции.
+
+**Исправление:**
+```bash
+# Было:
+local -a _dc
+# Стало:
+_dc=()
+...
+unset _dc
 ```
 
-**Причина:** Контейнеризированное окружение без sudo.
+**Статус:** ✅ Исправлено.
 
-**Решение:** Адаптированы скрипты — проверка наличия sudo в install.sh,
-добавлен fallback без sudo.
+---
 
-**Статус:** Решено в коде install.sh.
+### ОШИБКА #8: docker compose как строка вместо массива
+
+**Описание:** В `setup-tesla-p100.sh` и `watch-gpu.sh` команда `docker compose` использовалась
+как строка: `compose="docker compose"` → `$compose up -d` → word splitting-проблемы в bash.
+
+**Исправление:**
+```bash
+# Стало: массив — надёжно работает в любом bash
+local -a compose
+if docker compose version &>/dev/null 2>&1; then
+    compose=(docker compose)
+else
+    compose=(docker-compose)
+fi
+"${compose[@]}" up -d
+```
+
+**Статус:** ✅ Исправлено.
 
 ---
 
 ## Известные ограничения
 
-| Ограничение                     | Описание                                           | Обходное решение                    |
-|---------------------------------|----------------------------------------------------|-------------------------------------|
-| GPU на macOS (M1/M2/M3)         | Docker не поддерживает Metal GPU                   | Ollama работает на CPU              |
-| AMD GPU                         | Нужен отдельный docker-compose.amd.yml с ROCm      | Используйте CPU вариант            |
-| Windows Home Edition            | Docker Desktop требует WSL2                        | Включить WSL2 в Windows Features   |
-| Антивирус блокирует Docker      | Windows Defender/Kaspersky/ESET                    | Добавить исключение для Docker      |
-| Модели больше RAM               | OOM (Out of Memory) при запуске                    | Выбрать меньшую модель              |
+| Ограничение | Описание | Обходное решение |
+|-------------|----------|-----------------|
+| AMD GPU | Нет docker-compose.amd.yml с ROCm | CPU вариант |
+| macOS GPU | Docker не поддерживает Metal GPU | Ollama на CPU |
+| Windows Home | Docker Desktop требует WSL2 | Включить WSL2 |
+| Tesla P100 горячее подключение | Требует поддержки PCIe hotplug в BIOS | Подключить при выключенном ПК |
+| .exe установщик | Нет кастомной иконки | Используется системная |
+| Большие модели (70B+) | Требуют много VRAM / RAM | Использовать меньшие модели |
 
 ---
 
 ## Частые вопросы (FAQ)
 
 ### Почему модель отвечает медленно?
-- На CPU: скорость ~1-10 токен/сек — это нормально
-- Решение: используйте меньшую модель (phi3:mini, llama3.2:3b)
-- С GPU: скорость 30-100 токен/сек
+- На CPU: 1–10 токен/сек — это нормально
+- Используйте меньшую модель: `phi3:mini`, `llama3.2:3b`
+- С Tesla P100: 30–100 токен/сек
 
 ### Ошибка "port 3000 already in use"
 ```bash
-# Найти что занимает порт
-sudo lsof -i :3000
-# Изменить порт в .env файле
+sudo lsof -i :3000           # найти что занимает
 echo "WEBUI_PORT=3001" >> .env
 docker compose up -d
 ```
 
-### Как добавить OpenAI API ключ?
-В Open WebUI: Settings → Connections → OpenAI API → вставьте ключ.
-Тогда будут доступны GPT-4, GPT-3.5 и т.д.
+### GPU Panel не видит P100 после активации
+1. Перезагрузите ПК (после установки драйвера нужна перезагрузка)
+2. Проверьте: `nvidia-smi` — должна показать Tesla P100
+3. Перезапустите GPU Panel: `docker compose -f docker-compose.gpu.yml restart gpu-panel`
+
+### Монитор гаснет при подключении Tesla P100
+Скрипт настраивает GRUB и X11 автоматически (Шаг 2/8). Если не помогло:
+- В BIOS: `Primary Display → IGFX` (или Integrated / CPU Graphics)
+- Это нужно сделать один раз
+
+### Как добавить OpenAI API
+В Open WebUI: `Settings → Connections → OpenAI API → вставьте ключ`
 
 ### Ошибка "no space left on device"
-Модели занимают место. Удалите ненужные:
 ```bash
-docker exec super-sistema-ollama ollama rm llama3.1:70b
+docker exec super-sistema-ollama ollama rm <имя-модели>
+docker system prune -f
 ```
-
-### Контейнер не запускается на Windows
-1. Убедитесь что Docker Desktop запущен
-2. В Docker Desktop: Settings → Resources → WSL Integration → включите
-3. Перезапустите Docker Desktop

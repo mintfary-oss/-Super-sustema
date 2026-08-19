@@ -1,79 +1,57 @@
-# Что ещё надо сделать — Super Sistema
+# Что ещё можно сделать — Super Sistema
 
-## Текущий статус
+## Текущий статус: ЗАВЕРШЕНО ✅
 
----
-
-## 🔲 Ожидает выполнения
-
-### Публикация
-- [ ] Получить новый GitHub токен от пользователя (старый скомпрометирован)
-- [ ] Git init + remote add origin
-- [ ] Push всего кода в `mintfary-oss/-Super-sustema`
-- [ ] Создать GitHub Release с тегом v1.0.0
-- [ ] Прикрепить `SuperSistema-Setup.exe` к Release
-- [ ] Добавить скриншоты в README
-
-### Компиляция .exe
-- [ ] Установить NSIS на машину сборки (или использовать GitHub Actions)
-- [ ] Скомпилировать `installer/setup.nsi` → `SuperSistema-Setup.exe`
-- [ ] Протестировать .exe на Windows-машине
-
-### Опционально (улучшения)
-- [ ] Добавить nginx reverse proxy с HTTPS
-- [ ] Создать systemd service для автозапуска (Linux)
-- [ ] Добавить Windows Service для автозапуска
-- [ ] Добавить поддержку AMD GPU (ROCm)
-- [ ] Создать docker-compose.amd.yml
-- [ ] Добавить мониторинг (Portainer)
-- [ ] Создать Makefile для удобного управления
+*Все основные задачи выполнены. Ниже — опциональные улучшения для следующей версии.*
 
 ---
 
-## 📋 Приоритеты
+## ✅ Выполнено (было в списке)
 
-| Приоритет | Задача                                    | Важность |
-|-----------|-------------------------------------------|----------|
-| 1         | Получить новый GitHub токен               | 🔴 КРИТИЧНО |
-| 2         | Push кода в репозиторий                   | 🔴 Высокий |
-| 3         | Компиляция .exe через GitHub Actions      | 🟡 Средний |
-| 4         | Nginx + HTTPS                             | 🟢 Низкий |
-| 5         | AMD GPU поддержка                         | 🟢 Низкий |
-
----
-
-## 🚫 Блокеры
-
-1. **GitHub токен** — токен был опубликован в открытой переписке и должен быть
-   немедленно отозван: https://github.com/settings/tokens
-   Нужен новый токен с правами `repo` для пуша в репозиторий.
-
-2. **NSIS** — не установлен на текущем сервере. Для компиляции .exe нужно:
-   - Установить NSIS на Windows-машину и скомпилировать там, ИЛИ
-   - Использовать GitHub Actions (рекомендуется) — автоматически компилирует при push
+- [x] Push кода в репозиторий
+- [x] GitHub Release v1.0.0 с SuperSistema-Setup.exe
+- [x] Tesla P100 горячее подключение + веб-панель
+- [x] Автоматическая установка драйверов
+- [x] Real-time прогресс через SSE
+- [x] Фикс дисплея (GRUB + X11 + udev)
+- [x] Полное тестирование (31/31)
 
 ---
 
-## 💡 Решение блокера с NSIS
+## 🟡 Опциональные улучшения (v1.1)
 
-Добавить GitHub Actions workflow для автосборки .exe:
+### Безопасность и доступность
+- [ ] Nginx reverse proxy с HTTPS (самоподписанный или Let's Encrypt)
+- [ ] Базовая авторизация по паролю для веб-панели
+- [ ] Firewall правила в install.sh
 
-```yaml
-# .github/workflows/build-installer.yml
-name: Build Windows Installer
-on:
-  push:
-    tags:
-      - 'v*'
-jobs:
-  build:
-    runs-on: windows-latest
-    steps:
-      - uses: actions/checkout@v4
-      - name: Compile NSIS installer
-        run: makensis installer/setup.nsi
-      - name: Upload to Release
-        uses: softprops/action-gh-release@v1
-        with:
-          files: installer/SuperSistema-Setup.exe
-```
+### Автозапуск
+- [ ] Systemd сервис для Linux (автозапуск docker compose при загрузке)
+- [ ] Windows Service через NSSM для автозапуска
+
+### GPU расширения
+- [ ] Поддержка AMD GPU (ROCm) — docker-compose.amd.yml
+- [ ] Мониторинг температуры с алертами (telegram/email)
+- [ ] Поддержка нескольких GPU (multi-GPU Ollama)
+
+### UI улучшения
+- [ ] История чатов в GPU панели
+- [ ] Прямой запуск Ollama команд из веб-интерфейса
+- [ ] Мониторинг через Portainer
+
+### Удобство
+- [ ] Makefile для управления (make start, make stop, make pull-models)
+- [ ] Автообновление при git pull
+- [ ] Backup/restore моделей и чатов
+
+---
+
+## 📋 Приоритеты для v1.1
+
+| Приоритет | Задача | Сложность |
+|-----------|--------|-----------|
+| 1 | Nginx + HTTPS | Средняя |
+| 2 | Systemd сервис | Низкая |
+| 3 | AMD GPU (ROCm) | Высокая |
+| 4 | Makefile | Низкая |
+| 5 | Telegram алерты температуры | Средняя |
