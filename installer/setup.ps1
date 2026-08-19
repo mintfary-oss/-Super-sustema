@@ -184,8 +184,9 @@ function New-InstallDirectory {
         New-Item -ItemType Directory -Path $InstallDir -Force | Out-Null
     }
 
-    # Скопировать файлы если запускается из директории проекта
-    $scriptDir = Split-Path -Parent $MyInvocation.ScriptName
+    # Скопировать файлы если запускается из директории проекта.
+    # $PSScriptRoot — надёжно работает как при ручном запуске, так и из NSIS.
+    $scriptDir  = if ($PSScriptRoot) { $PSScriptRoot } else { Split-Path -Parent $MyInvocation.MyCommand.Path }
     $projectDir = Split-Path -Parent $scriptDir
     $composeFile = Join-Path $projectDir "docker-compose.yml"
 

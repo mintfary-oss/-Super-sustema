@@ -109,7 +109,7 @@ Section "Super Sistema (обязательно)" SecMain
     ; Копируем основные файлы
     File "..\docker-compose.yml"
     File "..\docker-compose.gpu.yml"
-    File "..\uninstall.sh"
+    File ".\setup.ps1"
     File /r "..\scripts"
 
     ; Создаём .env если не существует
@@ -125,13 +125,13 @@ Section "Super Sistema (обязательно)" SecMain
         FileClose $0
     env_exists:
 
-    ; Скачиваем образы и запускаем
+    ; Скачиваем образы и запускаем (cd в INSTDIR обязателен для docker compose)
     SetDetailsPrint both
-    DetailPrint "Скачиваем Docker образы (может занять 5-10 минут)..."
     SetOutPath "$INSTDIR"
-    nsExec::ExecToLog 'cmd /c docker compose pull'
+    DetailPrint "Скачиваем Docker образы (может занять 5-10 минут)..."
+    nsExec::ExecToLog 'cmd /c cd /d "$INSTDIR" && docker compose pull'
     DetailPrint "Запускаем контейнеры..."
-    nsExec::ExecToLog 'cmd /c docker compose up -d'
+    nsExec::ExecToLog 'cmd /c cd /d "$INSTDIR" && docker compose up -d'
 
     ; Ярлык на рабочем столе
     CreateShortcut "$DESKTOP\Super Sistema.lnk" \
@@ -168,7 +168,7 @@ SectionEnd
 Section Uninstall
 
     SetOutPath "$INSTDIR"
-    nsExec::ExecToLog 'cmd /c docker compose down'
+    nsExec::ExecToLog 'cmd /c cd /d "$INSTDIR" && docker compose down'
 
     MessageBox MB_ICONQUESTION|MB_YESNO \
         "Удалить также все данные (AI модели, история чатов)?$\r$\nЭто освободит несколько гигабайт на диске." \
@@ -180,6 +180,7 @@ Section Uninstall
 
     Delete "$INSTDIR\docker-compose.yml"
     Delete "$INSTDIR\docker-compose.gpu.yml"
+    Delete "$INSTDIR\setup.ps1"
     Delete "$INSTDIR\.env"
     Delete "$INSTDIR\uninstall.exe"
     RMDir /r "$INSTDIR\scripts"

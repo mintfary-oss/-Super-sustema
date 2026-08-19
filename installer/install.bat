@@ -1,4 +1,5 @@
 @echo off
+setlocal EnableDelayedExpansion
 :: Super Sistema — Установщик для Windows (BAT версия)
 :: Запустите от имени администратора (правая кнопка → Запуск от имени администратора)
 :: Или загрузите SuperSistema-Setup.exe с GitHub Releases для GUI-установщика
@@ -102,9 +103,27 @@ if %errorLevel% neq 0 (
 echo [OK] Контейнеры запущены.
 echo.
 echo [INFO] Скачиваем стартовую модель AI (llama3.2:3b ~2GB)...
-echo        Это может занять несколько минут...
-timeout /t 15 /nobreak >nul
+echo        Ожидаем запуска Ollama...
+
+:: Ждём готовности Ollama (до 90 секунд, проверка каждые 3 сек)
+set OLLAMA_READY=0
+for /L %%i in (1,1,30) do (
+    if not "!OLLAMA_READY!"=="1" (
+        docker exec super-sistema-ollama ollama list >nul 2>&1 && set OLLAMA_READY=1
+        if not "!OLLAMA_READY!"=="1" (
+            echo [INFO] Попытка %%i/30 - ожидаем Ollama...
+            timeout /t 3 /nobreak >nul
+        )
+    )
+)
+if not "!OLLAMA_READY!"=="1" (
+    echo [WARN] Ollama не ответил за 90 сек. Скачайте модель вручную:
+    echo        docker exec super-sistema-ollama ollama pull llama3.2:3b
+    goto :skip_model
+)
+echo [INFO] Ollama готов. Скачиваем llama3.2:3b...
 docker exec super-sistema-ollama ollama pull llama3.2:3b
+:skip_model
 
 :: Создаём ярлык на рабочем столе
 echo.

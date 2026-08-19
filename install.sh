@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # Super Sistema — Установщик для Linux
 # Использование: bash install.sh
-# Поддерживает: Ubuntu 20.04+, Debian 11+, CentOS 8+, Fedora 36+, Arch Linux
+# Поддерживает: Ubuntu 20.04+, Debian 11+, CentOS 8+, Fedora 36+, Arch Linux,
+#               Manjaro, EndeavourOS, Garuda, ArcoLinux и другие Arch-based
 
 set -euo pipefail
 
@@ -104,8 +105,14 @@ $(lsb_release -cs) stable" | \
             $SUDO dnf install -y docker-ce docker-ce-cli containerd.io docker-compose-plugin
             ;;
 
-        arch|manjaro)
-            $SUDO pacman -Sy --noconfirm docker docker-compose
+        arch|manjaro|endeavouros|garuda|arcolinux)
+            # docker пакет на Arch уже включает Compose v2 plugin (docker compose).
+            # docker-compose — устаревший v1 (Python), устанавливать не нужно.
+            $SUDO pacman -Sy --noconfirm docker
+            # Если Compose v2 недоступен — установить отдельный пакет
+            if ! docker compose version &>/dev/null 2>&1; then
+                $SUDO pacman -S --noconfirm docker-compose 2>/dev/null || true
+            fi
             ;;
 
         *)
@@ -130,8 +137,9 @@ setup_docker_group() {
         $SUDO usermod -aG docker "$USER"
         log_warn "Нужно перезайти в систему чтобы изменения вступили в силу."
         log_warn "Или выполните: newgrp docker"
-        # Для текущей сессии
-        exec sg docker "bash $0 --skip-group"
+        # Перезапустить скрипт в контексте группы docker для текущей сессии.
+        # Флаг --skip-group предотвращает бесконечную рекурсию.
+        exec sg docker "bash $(realpath "$0") --skip-group"
     fi
 }
 
@@ -215,22 +223,25 @@ start_containers() {
 
     cd "${INSTALL_DIR}"
 
-    # Определяем команду compose
-    if docker compose version &>/dev/null; then
-        COMPOSE_CMD="docker compose"
+    # Команда compose как массив — надёжно работает и с "docker compose" и с "docker-compose"
+    local -a DC
+    if docker compose version &>/dev/null 2>&1; then
+        DC=(docker compose)
+        log_info "Используем Docker Compose v2"
     else
-        COMPOSE_CMD="docker-compose"
+        DC=(docker-compose)
+        log_info "Используем docker-compose v1"
     fi
 
     # Остановить если уже запущено
-    $COMPOSE_CMD down --remove-orphans 2>/dev/null || true
+    "${DC[@]}" down --remove-orphans 2>/dev/null || true
 
     # Скачать образы и запустить
     log_info "Скачиваем Docker образы (может занять несколько минут)..."
-    $COMPOSE_CMD pull
+    "${DC[@]}" pull
 
     log_info "Запускаем контейнеры..."
-    $COMPOSE_CMD up -d
+    "${DC[@]}" up -d
 
     log_ok "Контейнеры запущены"
 }
@@ -302,11 +313,17 @@ print_success() {
 
 # ─── Главная функция ──────────────────────────────────────────────────────────
 main() {
+    # --skip-group: пропустить настройку группы docker при перезапуске через sg
+    local skip_group=false
+    for arg in "$@"; do
+        [[ "$arg" == "--skip-group" ]] && skip_group=true
+    done
+
     print_header
     check_privileges
     detect_distro
     install_docker
-    setup_docker_group
+    [[ "$skip_group" == "false" ]] && setup_docker_group
     check_docker_compose
     get_install_dir
     create_env_file
